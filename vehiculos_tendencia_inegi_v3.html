@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Ventas de Automóviles - Tendencia (INEGI)</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --card:#121830;
+      --ink:#e7ecff;
+      --muted:#9aa4c7;
+      --accent:#6ea8fe;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial;
+      background: radial-gradient(1200px 800px at 10% -10%, #1b2348, transparent),
+                  radial-gradient(1200px 800px at 110% 10%, #11183a, transparent),
+                  var(--bg);
+      color:var(--ink);
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    header{
+      padding:20px 16px 0;
+      max-width:1100px;
+      margin:0 auto;
+      width:100%;
+    }
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border:1px solid rgba(255,255,255,0.08);
+      border-radius:16px;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+    .panel{
+      max-width:1100px;
+      width:100%;
+      padding:14px 16px;
+      margin:0 auto;
+      display:flex;
+      flex-wrap:wrap;
+      gap:14px 18px;
+      align-items:center;
+      justify-content:space-between;
+    }
+    .group{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .filter{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      background:rgba(255,255,255,0.06);
+      padding:8px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,0.1);
+      color:var(--ink);
+      font-size:13px;
+    }
+    #chart{
+      height:68vh;
+      min-height:420px;
+      width:100%;
+      max-width:1100px;
+      margin:0 auto 28px;
+    }
+    input[type="range"]{
+      accent-color: var(--accent);
+    }
+    .checks{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .checks label{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      background:rgba(255,255,255,0.06);
+      padding:6px 10px;
+      border-radius:10px;
+      border:1px solid rgba(255,255,255,0.1);
+      font-size:13px;
+      cursor:pointer;
+      user-select:none;
+    }
+    footer{
+      max-width:1100px;
+      margin:0 auto 24px;
+      color:var(--muted);
+      font-size:12px;
+      padding:0 16px 16px;
+    }
+    a{color:var(--accent)}
+    code{background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:6px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1 style="margin:0 0 6px 0;">Venta al público de automóviles (INEGI)</h1>
+    <p style="margin:0;color:var(--muted)">Serie temporal interactiva. Fuente: INEGI BIE.</p>
+    <p style="margin:8px 0 0 0;">
+      <strong>API:</strong>
+      <a href="https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/INDICATOR/15170,15171,15172,15173,15174/es/0700/false/BIE/2.0/efed4a76-6a9d-ecc8-8621-a240a4d5eefb?type=json" target="_blank" rel="noreferrer">https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/INDICATOR/15170,15171,15172,15173,15174/es/0700/false/BIE/2.0/efed4a76-6a9d-ecc8-8621-a240a4d5eefb?type=json</a>
+    </p>
+  </header>
+
+  <div class="panel card">
+    <div class="group">
+      <div class="filter">
+        <strong style="margin-right:6px;">Año inicial:</strong>
+        <input id="yearSlider" type="range" min="1990" max="2025" value="1990" step="1" />
+        <span id="yearVal" style="min-width:46px;text-align:right;display:inline-block">1990</span>
+      </div>
+    </div>
+    <div class="group checks" id="seriesChecks"></div>
+  </div>
+
+  <div id="chart" class="card"></div>
+
+  <footer>
+    <div><strong>Token:</strong> <code>efed4a76-6a9d-ecc8-8621-a240a4d5eefb</code></div>
+  </footer>
+
+  <script>
+    const TOKEN = "efed4a76-6a9d-ecc8-8621-a240a4d5eefb";
+    const API_URL = "https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/INDICATOR/15170,15171,15172,15173,15174/es/0700/false/BIE/2.0/efed4a76-6a9d-ecc8-8621-a240a4d5eefb?type=json";
+
+    const indicadorMap = {
+      "15170": "Subcompacto",
+      "15171": "Compacto",
+      "15172": "De lujo",
+      "15173": "Deportivo",
+      "15174": "Importados",
+    };
+    const includedIds = new Set(Object.keys(indicadorMap));
+
+    const chart = echarts.init(document.getElementById('chart'));
+    let minYear = null;
+    let maxYear = null;
+
+    function numfmt(x){
+      if (x === null || x === undefined || isNaN(x)) return "-";
+      return Number(x).toLocaleString("es-MX");
+    }
+    function parseTime(t){
+      if (!t) return null;
+      if (/^\d{4}$/.test(t)) return t + "-01-01";
+      if (/^\d{4}-\d{2}(-\d{2})?$/.test(t)) return t.length === 7 ? t + "-01" : t;
+      if (/^\d{4}Q[1-4]$/i.test(t)){
+        const y = t.slice(0,4), q = t.slice(5);
+        const m = {Q1:"01",Q2:"04",Q3:"07",Q4:"10"}[q.toUpperCase()] || "01";
+        return y + "-" + m + "-01";
+      }
+      if (/^\d{4}[\/\\-]Q[1-4]$/i.test(t)){
+        const y = t.slice(0,4), q = t.slice(-2);
+        const m = {Q1:"01",Q2:"04",Q3:"07",Q4:"10"}[q.toUpperCase()] || "01";
+        return y + "-" + m + "-01";
+      }
+      if (/^\d{4}[\/\\-]\d{2}$/.test(t)){
+        const parts = t.replace("/", "-").split("-");
+        return parts[0] + "-" + parts[1] + "-01";
+      }
+      return t;
+    }
+
+    function buildOption(seriesMap, selectedNames){
+      const series = Object.entries(seriesMap).map(([name, arr]) => ({ 
+        name,
+        type: "line",
+        showSymbol: false,
+        smooth: true,
+        emphasis: { focus: "series" },
+        data: arr.sort((a,b)=> new Date(a[0]) - new Date(b[0]))
+      }));
+
+      const legendSelected = {};
+      Object.keys(seriesMap).forEach(n => {
+        legendSelected[n] = selectedNames ? selectedNames.has(n) : true;
+      });
+
+      return {
+        backgroundColor: "transparent",
+        title: {
+          text: "Venta al público de automóviles por categoría",
+          left: "center",
+          textStyle: { color: "#e7ecff" }
+        },
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "line" },
+          valueFormatter: (v) => numfmt(v),
+          formatter: (params) => {
+            if (!params || !params.length) return "";
+            const d = new Date(params[0].data[0]);
+            const date = d.toLocaleDateString("es-MX", { year:"numeric", month:"short" });
+            let html = `<div style="font-weight:600;margin-bottom:6px">${date}</div>`;
+            params.forEach(p => {
+              if (!legendSelected[p.seriesName]) return;
+              html += `<div style="display:flex;justify-content:space-between;gap:12px">
+                        <span>${p.marker}${p.seriesName}</span>
+                        <span style="font-variant-numeric: tabular-nums">${numfmt(p.data[1])}</span>
+                      </div>`;
+            });
+            return html;
+          }
+        },
+        legend: {
+          type: "scroll",
+          top: 34,
+          textStyle: { color: "#cbd3f7" },
+          selected: legendSelected
+        },
+        grid: { top: 80, left: 60, right: 24, bottom: 80 },
+        toolbox: {
+          feature: {
+            saveAsImage: { title: "Guardar PNG" },
+            dataZoom: { yAxisIndex: "none" },
+            restore: { title: "Restaurar" },
+            magicType: { type: ["line", "bar"] }
+          },
+          iconStyle: { borderColor: "#cbd3f7" },
+          right: 10
+        },
+        xAxis: {
+          type: "time",
+          name: "Fecha",
+          nameTextStyle: { color: "#cbd3f7" },
+          axisLine: { lineStyle: { color: "#6e7bb3" } },
+          axisLabel: {
+            color: "#cbd3f7",
+            formatter: (val)=>{
+              const d = new Date(val);
+              const y = d.getFullYear();
+              const m = String(d.getMonth()+1).padStart(2, "0");
+              return `${y}-${m}`;
+            }
+          }
+        },
+        yAxis: {
+          type: "value",
+          name: "Unidades",
+          nameTextStyle: { color: "#cbd3f7" },
+          axisLine: { lineStyle: { color: "#6e7bb3" } },
+          axisLabel: {
+            color: "#cbd3f7",
+            formatter: (v)=> numfmt(v)
+          },
+          splitLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } }
+        },
+        dataZoom: [
+          { type: "inside", throttle: 50 },
+          { type: "slider", bottom: 20, height: 24 }
+        ],
+        series
+      };
+    }
+
+    function buildChecks(names){
+      const wrap = document.getElementById("seriesChecks");
+      wrap.innerHTML = "";
+
+      const allLabel = document.createElement("label");
+      const allCb = document.createElement("input");
+      allCb.type = "checkbox";
+      allCb.checked = true;
+      allLabel.appendChild(allCb);
+      allLabel.appendChild(document.createTextNode("Seleccionar todo"));
+      wrap.appendChild(allLabel);
+
+      const cbs = [];
+      names.forEach(n => {
+        const lab = document.createElement("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = n;
+        cb.checked = true;
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(n));
+        wrap.appendChild(lab);
+        cbs.push(cb);
+      });
+
+      function syncLegend(){
+        const selected = {};
+        cbs.forEach(cb => { selected[cb.value] = cb.checked; });
+        chart.setOption({ legend: { selected } }, false);
+      }
+
+      allCb.addEventListener("change", () => {
+        const checked = allCb.checked;
+        cbs.forEach(cb => { cb.checked = checked; });
+        syncLegend();
+      });
+
+      cbs.forEach(cb => {
+        cb.addEventListener("change", () => {
+          allCb.checked = cbs.every(x => x.checked);
+          syncLegend();
+        });
+      });
+    }
+
+    function initYearSlider(minY, maxY){
+      const slider = document.getElementById("yearSlider");
+      const label = document.getElementById("yearVal");
+      slider.min = String(minY);
+      slider.max = String(maxY);
+      slider.value = String(minY);
+      label.textContent = String(minY);
+
+      function applyFromYear(y){
+        label.textContent = String(y);
+        const start = new Date(Number(y), 0, 1).getTime();
+        const end   = new Date(Number(maxYear), 11, 31).getTime();
+        chart.dispatchAction({
+          type: "dataZoom",
+          startValue: start,
+          endValue: end
+        });
+      }
+      slider.addEventListener("input", e => applyFromYear(e.target.value));
+    }
+
+    async function main(){
+      chart.showLoading("default", { text: "Cargando datos de INEGI..." });
+      try{
+        const resp = await fetch(API_URL, { cache: "no-store" });
+        const json = await resp.json();
+
+        const seriesMap = {};
+        if (Array.isArray(json.Series)){
+          json.Series.forEach(s => {
+            const code = String(s.INDICADOR || s.IndicatorId || s.indicador || s.CODE || s.id || "").trim();
+            if (!includedIds.has(code)) return;
+            const name = indicadorMap[code] || code;
+            const obs = s.OBSERVATIONS || s.observations || [];
+            obs.forEach(o => {
+              const t = parseTime(o.TIME_PERIOD || o.time_period || o.TIME || o.time);
+              const v = Number((o.OBS_VALUE || o.obs_value || o.value || "").toString().replace(/,/g,""));
+              if (t && !Number.isNaN(v)) {
+                if (!seriesMap[name]) seriesMap[name] = [];
+                seriesMap[name].push([t, v]);
+              }
+            });
+          });
+        } else if (json.Data && Array.isArray(json.Data)){
+          json.Data.forEach(row => {
+            const code = String(row.Indicador || row.indicador || row.code || "").trim();
+            if (!includedIds.has(code)) return;
+            const name = indicadorMap[code] || code;
+            const t = parseTime(row.Time_Period || row.time || row.TIME_PERIOD);
+            const v = Number((row.Obs_Value || row.value || row.OBS_VALUE || "").toString().replace(/,/g,""));
+            if (t && !Number.isNaN(v)) {
+              if (!seriesMap[name]) seriesMap[name] = [];
+              seriesMap[name].push([t, v]);
+            }
+          });
+        } else {
+          throw new Error("Formato de respuesta no reconocido.");
+        }
+
+        const names = Object.keys(seriesMap);
+        chart.setOption(buildOption(seriesMap));
+
+        const allDates = [];
+        Object.values(seriesMap).forEach(arr => { arr.forEach(([t]) => allDates.push(new Date(t))); });
+        const years = allDates.map(d => d.getFullYear());
+        minYear = Math.min.apply(null, years);
+        maxYear = Math.max.apply(null, years);
+
+        buildChecks(names);
+        initYearSlider(minYear, maxYear);
+      }catch(err){
+        console.error(err);
+        chart.setOption({
+          title: { text: "Error al cargar datos", left:"center", textStyle:{color:"#e7ecff"} },
+          graphic: [{ type:"text", left:"center", top:"middle", style:{ text:"No fue posible obtener/interpretar el JSON del BIE.", fill:"#cbd3f7", fontSize:16 } }]
+        });
+      }finally{
+        chart.hideLoading();
+      }
+    }
+
+    window.addEventListener("resize", ()=> chart.resize());
+    main();
+  </script>
+</body>
+</html>
